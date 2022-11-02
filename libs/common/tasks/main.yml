@@ -1,0 +1,111 @@
+---
+
+- name: Install required packages
+  ansible.builtin.apt: name={{ item }} state=present
+  become: yes
+  loop:
+    - curl
+    - software-properties-common
+    - apt-transport-https 
+    - ca-certificates 
+    - gnupg
+    - lsb-release
+    - npm
+    - nodejs
+  tags: ["common", "afyastat"]
+
+- name: Check if Service Exists
+  stat: path=/etc/init.d/pihole
+  register: service_status
+
+- name: Stop Service
+  service: name=pihole state=stopped
+  when: service_status.stat.exists
+  register: service_stopped
+
+- name: Remove previous installation directories
+  become: yes
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/pihole/
+    - /usr/local/{lib/node{,/.npm,_modules},bin,share/man}/{npm*,node*,man1/node*}
+    - /opt/afyastat
+    - /opt/local/bin/node 
+    - /opt/local/include/node 
+    - /opt/local/lib/node_modules
+    - /usr/local/bin/npm 
+    - /usr/local/share/man/man1/node.1 
+    - /usr/local/lib/dtrace/node.d
+
+- name: Cleanup the cache
+  become: yes
+  ansible.builtin.apt:
+    autoclean: yes
+    
+- name: Remove dependencies that are no longer required
+  become: yes
+  ansible.builtin.apt:
+    autoremove: yes
+
+- name: Install pm2 and joi
+  become: yes
+  command: "{{ item }}"
+  loop:
+    - npm install pm2 -g
+    - npm install joi
+    
+- name: Restart systemd-resolved
+  become: yes
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    state: restarted
+  tags: ["common", "afyastat"]
+
+- name: Setup docker repository
+  become: yes
+  shell: "{{ item }}"
+  loop:
+    - "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -"
+    - "echo deb [arch=amd64] https://download.docker.com/linux/ubuntu  $(lsb_release -cs)  stable | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null"
+  tags: ["common", "afyastat"]
+
+- name: Update packages (to pickup the docker repo)
+  become: yes
+  ansible.builtin.apt: update_cache=yes
+  tags: ["common", "afyastat"]
+
+- name: Install docker engine
+  become: yes
+  ansible.builtin.apt:
+    name: docker-ce
+    state: present
+  tags: ["common", "afyastat"]
+
+- name: Setup docker-compose
+  become: yes
+  command: "{{ item }}"
+  loop:
+    - curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-Linux-x86_64" -o /usr/local/bin/docker-compose
+    - chmod +x /usr/local/bin/docker-compose
+  tags: ["common", "afyastat"]
+
+- name: Ensure docker service is (re)started
+  become: yes
+  ansible.builtin.systemd:
+    name: docker
+    state: restarted
+    enabled: yes
+    force: yes
+  tags: ["common", "afyastat"]
+
+
+
+
+
+
+
+
+
+

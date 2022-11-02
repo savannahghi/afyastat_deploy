@@ -1,0 +1,268 @@
+---
+
+- name: Download and unzip afyastat.
+  become: yes
+  shell: "{{ item }}"
+  loop:
+    - curl -L https://github.com/palladiumkenya/kenyahmis-releases/releases/download/v57/afyastatsetup.zip -o afyastatsetup.zip
+    - unzip afyastatsetup.zip
+  args:
+    chdir: "/home/{{ lookup('env', 'USER') }}"
+  tags: ["common", "afyastat"]
+
+- name: Create Folder opt/afyastat
+  become: yes
+  ansible.builtin.file:
+    path: /opt/afyastat
+    state: directory
+    mode: '0755'
+  tags: ["common", "afyastat"]
+
+- name: Copy folder medic to /opt/afyastat
+  become: yes
+  shell: cp -R "medic/" /opt/afyastat
+  args:
+    chdir: /home/{{ lookup('env', 'USER') }}/afyastatsetup
+  tags: ["common", "afyastat"]
+
+- name: Create Folder etc/pihole
+  become: yes
+  ansible.builtin.file:
+    path: /etc/pihole
+    owner: root
+    group: root
+    mode: '0755'
+    recurse: yes
+    state: directory
+  tags: ["common", "afyastat"]
+    
+- name: Edit /etc/systemd/resolved.conf and set symlink /etc/resolv.conf 
+  become: yes
+  shell: "{{ item }}"
+  loop:
+    - sed -r -i.orig 's/#?DNSStubListener=yes/DNSStubListener=no/g' /etc/systemd/resolved.conf
+    - sh -c 'rm /etc/resolv.conf && ln -s /run/systemd/resolve/resolv.conf /etc/resolv.conf'
+    - systemctl restart systemd-resolved 
+  tags: ["common", "afyastat"]
+
+- debug: var=ansible_enp0s3.ipv4.address  
+- debug: var=ansible_all_ipv4_addresses
+- debug: var=ansible_default_ipv4.address
+
+- name: "Update /etc/hosts file"
+  become: yes
+  lineinfile: 
+    path: "/etc/hosts"
+    line: "{{ item }}" 
+    state: present
+    backup: yes
+  loop:
+    - "{{ ansible_default_ipv4.address }}\tdns.hmislocal.org"
+    - "{{ ansible_default_ipv4.address }}\tcht.hmislocal.org"
+  tags: ["common", "afyastat"]
+
+- name: "Update /etc/environment file"
+  become: yes
+  lineinfile: 
+    path: "/etc/environment"
+    line: "{{ item }}" 
+    state: present
+    backup: yes
+  loop:
+    - "DOCKER_COUCHDB_ADMIN_PASSWORD=cb6f4d4b-73cc-4c42-97cb-0db5a631190a"
+    - "COUCH_URL=http://medic:cb6f4d4b-73cc-4c42-97cb-0db5a631190a@localhost:5988/medic"
+    - "COUCH_NODE_NAME=onode@nohost"
+  tags: ["common", "afyastat"]
+
+- name: Concatenate keys
+  become: yes
+  shell: "{{ item }}"
+  loop:
+    - cat hmislocal.key hmislocal.crt > lighttpd.key.and.pem.pem
+    - cat hmislocal.crt bundle.crt > server.chained.pem
+  args:
+    chdir: "/home/{{ lookup('env', 'USER') }}/afyastatsetup/medic/tls-certs"
+  tags: ["common", "afyastat"]
+
+- name: Copy tls-certs to /etc directory 
+  become: yes
+  shell: cp -R "medic/tls-certs" /etc
+  args:
+    chdir: /home/{{ lookup('env', 'USER') }}/afyastatsetup
+  tags: ["common", "afyastat"]
+
+- name: Check if apache2 ports.conf exists
+  become: yes
+  stat:
+    path: /etc/apache2/ports.conf
+  register: stat_result
+
+- name: Changing Apache from for 80 to * 8082, port 80 will be used by nginx
+  become: yes
+  replace:
+   path: /etc/apache2/ports.conf
+   regexp: 'Listen 80'
+   replace: 'Listen 8082'
+   backup: yes
+  when: (stat_result.stat.isreg is defined) and (stat_result.stat.isreg) 
+  tags: ["common", "afyastat"]
+
+- name: Installing Pi-Hole
+  become: yes
+  shell: "docker-compose -f pi-hole-docker-compose.yml up --detach --remove-orphans"
+  args:
+    chdir: "/home/{{ lookup('env', 'USER') }}/afyastatsetup/medic"
+  tags: ["common", "afyastat"]
+
+- name: Copy pihole to etc/pihole
+  become: yes  
+  shell: cp -R "medic/etc-pihole" /etc/pihole
+  args:
+    chdir: /home/{{ lookup('env', 'USER') }}/afyastatsetup
+  tags: ["common", "afyastat"]
+
+- name: Copy setupVars to /etc/pihole
+  become: yes
+  shell: cp -R "setupVars.conf" /etc/pihole/setupVars.conf
+  args:
+    chdir: /home/{{ lookup('env', 'USER') }}/afyastatsetup
+  tags: ["common", "afyastat"]
+
+- name: Configure Pi Hole DNS & DHCP  - DHCP_ROUTER Create New
+  become: yes
+  lineinfile: 
+    path: "/etc/pihole/setupVars.conf"
+    line: "{{ item }}" 
+    state: present
+    backup: yes
+  loop:
+    - "BLOCKING_ENABLED=false"
+    - "DHCP_ROUTER={{ ansible_default_ipv4.gateway }}"
+    - "DHCP_rapid_commit=false"
+    - "PIHOLE_DNS_3={{ ansible_default_ipv4.address }}"
+    - "PIHOLE_DNS_4={{ ansible_default_ipv4.gateway }}"
+    - "DHCP_START={{ ansible_default_ipv4.address }}"
+    
+- name: hostname was used instead of path.
+  become: yes
+  replace:
+   path: /etc/pihole/setupVars.conf
+   regexp: 'DHCP_START=192.168.2.58'
+   replace: 'DHCP_START={{ ansible_default_ipv4.address }}'
+   backup: yes
+
+- name: configure Pi Hole DNS & DHCP  - DHCP_ROUTER
+  become: yes
+  replace:
+   path: /etc/pihole/setupVars.conf
+   regexp: 'DHCP_ROUTER=192.168.2.1'
+   replace: 'DHCP_ROUTER={{ ansible_default_ipv4.gateway }}'
+   backup: yes
+
+- name: configure Pi Hole DNS & DHCP  - DHCP_ROUTER
+  become: yes
+  replace:
+   path: /etc/pihole/setupVars.conf
+   regexp: 'BLOCKING_ENABLED=true'
+   replace: 'BLOCKING_ENABLED=false'
+   backup: yes
+
+  
+- name: Configure Pihole static ip on dns
+  become: yes
+  lineinfile: 
+    path: "/etc/pihole/etc-pihole/custom.list"
+    line: "{{ item }}" 
+    state: present
+    backup: yes
+  loop:
+    - "cht.hmislocal.org {{ ansible_default_ipv4.address }}"
+    - "dns.hmislocal.org {{ ansible_default_ipv4.address }}"
+
+- name: Assign rights to /etc/pihole directory 
+  become: yes
+  shell: "chmod -R 0777 /etc/pihole"
+
+- name: Installing Medic-OS
+  become: yes
+  shell: "docker-compose -f cht-docker-compose-local-host.yml up --detach"
+  args:
+    chdir: /home/{{ lookup('env', 'USER') }}/afyastatsetup/medic
+
+- name: Getting ready, pausing for 60 secs...
+  ansible.builtin.pause:
+   minutes: 1
+
+- name: Copy nginx File to Medic-os Container
+  become: yes
+  shell: docker cp "/home/{{ lookup('env', 'USER') }}/afyastatsetup/medic/nginx.conf" medic-os:/srv/settings/medic-core/nginx/nginx.conf
+    
+- name: Restarting Medic-os container
+  become: yes
+  shell: docker restart medic-os
+  
+- name: Installing Medic-config, install AfyaSTATForms, Upload AfyaSTATForms
+  become: yes
+  shell: "{{ item }}" 
+  loop:
+    - npm install -g medic-conf@3.6.0 
+    - apt-get install -y python3-pip  
+    - python3 -m pip install git+https://github.com/medic/pyxform.git@medic-conf-1.17#egg=pyxform-medic
+
+- name: Waiting for AfyaStat to start...
+  uri:
+   url: "http://localhost:5988"
+   status_code: [200,301]
+  register: result
+  until: result.status == 200
+  retries: 20
+  delay: 30
+
+- name: Uploading AfyaStat Forms
+  become: yes
+  command: medic-conf --url=http://medic:cb6f4d4b-73cc-4c42-97cb-0db5a631190a@localhost:5988 upload-app-settings delete-all-forms upload-app-forms upload-contact-forms upload-resources upload-custom-translations --accept-self-signed-certs
+  args:
+    chdir: /opt/afyastat/medic/AfyaStatForms
+
+- name: Installing Level 
+  become: yes
+  npm:
+    name: level
+    path: /user/local/lib/node_modules
+
+- name: Installing pouchdb-core  
+  become: yes
+  npm:
+    name: pouchdb-core
+    path: /user/local/lib/node_modules
+
+- name: Installing pouchdb-adapter-http
+  become: yes
+  npm:
+    name: pouchdb-adapter-http
+    path: /user/local/lib/node_modules
+
+- name: Installing pouchdb-mapreduce 
+  become: yes
+  npm:
+    name: pouchdb-mapreduce 
+    path: /user/local/lib/node_modules
+
+- name: Active PM2 listener on startup 
+  become: yes
+  command: pm2 startup
+  args:
+   chdir: /opt/afyastat/medic/
+
+- name: Starting PM2 listener on startup 
+  become: yes
+  command: pm2 start listener.js -f
+  args:
+   chdir: /opt/afyastat/medic/
+   
+- name: Active PM2 Listiner on startup 
+  become: yes
+  command: pm2 save
+  args:
+   chdir: /opt/afyastat/medic/
+

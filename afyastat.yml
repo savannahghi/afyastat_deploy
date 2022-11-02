@@ -1,0 +1,15 @@
+- hosts: all
+
+  vars:
+    lock_file_path: /tmp/ansible-playbook-install.lock
+    force_ignore_lock: "{{force_ignore_lock}}"
+  name: Deploy AfyaStat
+
+  post_tasks:
+    - name: Deploy successful, remove lock_file
+      ansible.builtin.file: path={{lock_file_path}} state=absent
+      become: yes
+
+  roles:
+    - common
+    - afyastat
