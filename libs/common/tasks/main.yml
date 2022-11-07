@@ -5,6 +5,8 @@
   become: yes
   loop:
     - curl
+    - unzip
+    - python3-pip  
     - software-properties-common
     - apt-transport-https 
     - ca-certificates 
@@ -12,7 +14,6 @@
     - lsb-release
     - npm
     - nodejs
-    - unzip
   tags: ["common", "afyastat"]
 
 - name: Check if Service Exists

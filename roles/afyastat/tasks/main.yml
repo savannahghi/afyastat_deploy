@@ -102,16 +102,6 @@
     path: /etc/apache2/ports.conf
   register: stat_result
 
-- name: Changing Apache from for 80 to * 8082, port 80 will be used by nginx
-  become: yes
-  replace:
-   path: /etc/apache2/ports.conf
-   regexp: 'Listen 80'
-   replace: 'Listen 8082'
-   backup: yes
-  when: (stat_result.stat.isreg is defined) and (stat_result.stat.isreg) 
-  tags: ["common", "afyastat"]
-
 - name: Installing Pi-Hole
   become: yes
   shell: "docker-compose -f pi-hole-docker-compose.yml up --detach --remove-orphans"
@@ -202,18 +192,19 @@
 
 - name: Copy nginx File to Medic-os Container
   become: yes
-  shell: docker cp "/home/{{ lookup('env', 'USER') }}/afyastatsetup/medic/nginx.conf" medic-os:/srv/settings/medic-core/nginx/nginx.conf
-    
+  shell: docker cp "nginx.conf" medic-os:/srv/settings/medic-core/nginx/nginx.conf
+  args:
+    chdir: /home/{{ lookup('env', 'USER') }}/afyastatsetup/medic
+
 - name: Restarting Medic-os container
   become: yes
   shell: docker restart medic-os
   
-- name: Installing Medic-config, install AfyaSTATForms, Upload AfyaSTATForms
+- name: Installing Medic-config and AfyaSTATForms
   become: yes
   shell: "{{ item }}" 
   loop:
     - npm install -g medic-conf@3.6.0 
-    - apt-get install -y python3-pip  
     - python3 -m pip install git+https://github.com/medic/pyxform.git@medic-conf-1.17#egg=pyxform-medic
 
 - name: Waiting for AfyaStat to start...
@@ -231,45 +222,25 @@
   args:
     chdir: /opt/afyastat/medic/AfyaStatForms
 
-- name: Installing Level 
+
+- name: Install pouchdb
   become: yes
   npm:
-    name: level
+    name: "{{ item }}"
     path: /user/local/lib/node_modules
+  loop:
+    - level
+    - pouchdb-core
+    - pouchdb-adapter-http
+    - pouchdb-mapreduce 
 
-- name: Installing pouchdb-core  
+- name: Activate, Start PM2 listener on startup 
   become: yes
-  npm:
-    name: pouchdb-core
-    path: /user/local/lib/node_modules
-
-- name: Installing pouchdb-adapter-http
-  become: yes
-  npm:
-    name: pouchdb-adapter-http
-    path: /user/local/lib/node_modules
-
-- name: Installing pouchdb-mapreduce 
-  become: yes
-  npm:
-    name: pouchdb-mapreduce 
-    path: /user/local/lib/node_modules
-
-- name: Active PM2 listener on startup 
-  become: yes
-  command: pm2 startup
-  args:
-   chdir: /opt/afyastat/medic/
-
-- name: Starting PM2 listener on startup 
-  become: yes
-  command: pm2 start listener.js -f
-  args:
-   chdir: /opt/afyastat/medic/
-   
-- name: Active PM2 Listiner on startup 
-  become: yes
-  command: pm2 save
+  command: "{{ item }}"
+  loop:
+    - pm2 startup
+    - pm2 start listener.js -f
+    - pm2 save
   args:
    chdir: /opt/afyastat/medic/
 
