@@ -12,6 +12,7 @@
     - lsb-release
     - npm
     - nodejs
+    - unzip
   tags: ["common", "afyastat"]
 
 - name: Check if Service Exists

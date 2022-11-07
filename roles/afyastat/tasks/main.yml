@@ -1,14 +1,17 @@
 ---
 
-- name: Download and unzip afyastat.
+- name: Remove previous download(if any)
   become: yes
-  shell: "{{ item }}"
-  loop:
-    - curl -L https://github.com/palladiumkenya/kenyahmis-releases/releases/download/v57/afyastatsetup.zip -o afyastatsetup.zip
-    - unzip afyastatsetup.zip
-  args:
-    chdir: "/home/{{ lookup('env', 'USER') }}"
-  tags: ["common", "afyastat"]
+  ansible.builtin.file:
+    path: /home/{{ lookup('env', 'USER') }}/afyastatsetup
+    state: absent
+
+- name: Download and Unzip afyastat
+  become: yes
+  ansible.builtin.unarchive:
+    src: https://github.com/palladiumkenya/kenyahmis-releases/releases/download/v57/afyastatsetup.zip
+    dest: "/home/{{ lookup('env', 'USER') }}"
+    remote_src: yes
 
 - name: Create Folder opt/afyastat
   become: yes
@@ -20,9 +23,10 @@
 
 - name: Copy folder medic to /opt/afyastat
   become: yes
-  shell: cp -R "medic/" /opt/afyastat
-  args:
-    chdir: /home/{{ lookup('env', 'USER') }}/afyastatsetup
+  ansible.builtin.copy:
+    src: /home/{{ lookup('env', 'USER') }}/afyastatsetup/medic
+    dest: /opt/afyastat
+    remote_src: yes
   tags: ["common", "afyastat"]
 
 - name: Create Folder etc/pihole
@@ -86,9 +90,10 @@
 
 - name: Copy tls-certs to /etc directory 
   become: yes
-  shell: cp -R "medic/tls-certs" /etc
-  args:
-    chdir: /home/{{ lookup('env', 'USER') }}/afyastatsetup
+  ansible.builtin.copy:
+    src: /home/{{ lookup('env', 'USER') }}/afyastatsetup/medic/tls-certs
+    dest: /etc
+    remote_src: yes
   tags: ["common", "afyastat"]
 
 - name: Check if apache2 ports.conf exists
@@ -115,17 +120,19 @@
   tags: ["common", "afyastat"]
 
 - name: Copy pihole to etc/pihole
-  become: yes  
-  shell: cp -R "medic/etc-pihole" /etc/pihole
-  args:
-    chdir: /home/{{ lookup('env', 'USER') }}/afyastatsetup
+  become: yes
+  ansible.builtin.copy:
+    src: /home/{{ lookup('env', 'USER') }}/afyastatsetup/medic/etc-pihole
+    dest: /etc/pihole
+    remote_src: yes
   tags: ["common", "afyastat"]
 
-- name: Copy setupVars to /etc/pihole
+- name: Copy setupVars to /etc/pihole/setupVars.conf
   become: yes
-  shell: cp -R "setupVars.conf" /etc/pihole/setupVars.conf
-  args:
-    chdir: /home/{{ lookup('env', 'USER') }}/afyastatsetup
+  ansible.builtin.copy:
+    src: /home/{{ lookup('env', 'USER') }}/afyastatsetup/setupVars.conf
+    dest: /etc/pihole/setupVars.conf
+    remote_src: yes
   tags: ["common", "afyastat"]
 
 - name: Configure Pi Hole DNS & DHCP  - DHCP_ROUTER Create New
@@ -220,7 +227,7 @@
 
 - name: Uploading AfyaStat Forms
   become: yes
-  command: medic-conf --url=http://medic:cb6f4d4b-73cc-4c42-97cb-0db5a631190a@localhost:5988 upload-app-settings delete-all-forms upload-app-forms upload-contact-forms upload-resources upload-custom-translations --accept-self-signed-certs
+  shell: medic-conf --url=http://medic:cb6f4d4b-73cc-4c42-97cb-0db5a631190a@localhost:5988 upload-app-settings delete-all-forms upload-app-forms upload-contact-forms upload-resources upload-custom-translations --accept-self-signed-certs --force
   args:
     chdir: /opt/afyastat/medic/AfyaStatForms
 
